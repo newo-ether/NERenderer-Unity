@@ -1,0 +1,33 @@
+// Kernel.compute
+
+#pragma kernel Render
+
+#include "Renderer.hlsl"
+#include "Random.hlsl"
+#include "Camera.hlsl"
+#include "Ray.hlsl"
+#include "Film.hlsl"
+
+// Uniform Variable
+bool accumulate;
+
+// Uniform Variable
+int frameCount;
+
+[numthreads(20,20,1)]
+void Render (uint3 id : SV_DispatchThreadID)
+{
+    uint2 screenIndex = id.xy;
+    RandomInit(screenIndex);
+    Ray ray = CameraGetSampleRay(screenIndex);
+    
+    float3 result = PathTracing(ray);
+    if (accumulate)
+    {
+        AccumulateFilmPixel(screenIndex, float4(result, 1.0f), frameCount);
+    }
+    else
+    {
+        SetFilmPixel(screenIndex, float4(result, 1.0f));
+    }
+}
