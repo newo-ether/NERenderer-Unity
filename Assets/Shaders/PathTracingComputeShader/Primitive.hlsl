@@ -16,16 +16,32 @@ struct Primitive
 StructuredBuffer<Primitive> primitives;
 
 // Uniform Variable
+StructuredBuffer<Primitive> emissivePrimitives;
+
+// Uniform Variable
 int primitiveCount;
+
+// Uniform Variable
+int emissivePrimitiveCount;
 
 int GetPrimitiveCount()
 {
     return primitiveCount;
 }
 
+int GetEmissivePrimitiveCount()
+{
+    return emissivePrimitiveCount;
+}
+
 Primitive GetPrimitive(int index)
 {
     return primitives[index];
+}
+
+Primitive GetEmissivePrimitive(int index)
+{
+    return emissivePrimitives[index];
 }
 
 #endif // __PRIMITIVE__

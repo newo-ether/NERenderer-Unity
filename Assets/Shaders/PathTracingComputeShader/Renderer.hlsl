@@ -8,6 +8,7 @@
 #include "IntersectInfo.hlsl"
 #include "Material.hlsl"
 #include "Random.hlsl"
+#include "Light.hlsl"
 #include "Constant.hlsl"
 
 struct RenderOption
@@ -34,26 +35,33 @@ float3 PathTracing(Ray ray)
         if (isect.isHit)
         {
             Material material = isect.hitMaterial;
-            if (MaterialIsEmissive(material))
+            if (depth == 0 && MaterialIsEmissive(material) && dot(isect.incomeDir, isect.hitNormal) > 0.0f)
             {
-                float3 Li = MaterialGetEmission(material);
-                Lo = Li * decay;
+                Lo = MaterialGetEmission(material);
+            }
+            else
+            {
+                Lo += decay * SampleOneLight(isect);
+            }
+            
+            if (depth >= 2 && Random01() > rr)
+            {
                 break;
             }
-            if (Random01() > rr)
-            {
-                Lo = float3(0.0f, 0.0f, 0.0f);
-                break;
-            }
-            float3 newDir = RandomHemisphereDir(isect.hitNormal);
+            
+            float3 newDir = RandomCosineWeightedHemisphereDir(isect.hitNormal);
             ray = RayInit(isect.hitPoint, newDir, EPSILON, INF);
-            float invPdf = TWOPI;
+            float invPdf = PI;
             decay *= MaterialBSDF(material, newDir, isect.incomeDir, isect.hitNormal)
-                     * dot(newDir, isect.hitNormal) * invPdf * invrr;
+                     * invPdf;
+            
+            if (depth >= 2)
+            {
+                decay *= invrr;
+            }
         }
         else
         {
-            Lo = float3(0.0f, 0.0f, 0.0f);
             break;
         }
     }

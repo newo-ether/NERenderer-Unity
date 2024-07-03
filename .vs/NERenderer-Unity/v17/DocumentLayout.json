@@ -1,0 +1,37 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\workspace\\Projects\\Unity Projects\\NERenderer-Unity\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{D298AE20-6C5E-0481-49A9-00D98DC7BD4A}|Assembly-CSharp.csproj|d:\\workspace\\projects\\unity projects\\nerenderer-unity\\assets\\scripts\\pathtracinginvoker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{D298AE20-6C5E-0481-49A9-00D98DC7BD4A}|Assembly-CSharp.csproj|solutionrelative:assets\\scripts\\pathtracinginvoker.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "PathTracingInvoker.cs",
+              "DocumentMoniker": "D:\\workspace\\Projects\\Unity Projects\\NERenderer-Unity\\Assets\\Scripts\\PathTracingInvoker.cs",
+              "RelativeDocumentMoniker": "Assets\\Scripts\\PathTracingInvoker.cs",
+              "ToolTip": "D:\\workspace\\Projects\\Unity Projects\\NERenderer-Unity\\Assets\\Scripts\\PathTracingInvoker.cs",
+              "RelativeToolTip": "Assets\\Scripts\\PathTracingInvoker.cs",
+              "ViewState": "AQIAAKYBAAAAAAAAAAAAAMUBAABrAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2024-07-02T18:17:48.614Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

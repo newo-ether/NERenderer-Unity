@@ -4,6 +4,7 @@ MonoImporter:
   externalObjects: {}
   serializedVersion: 2
   defaultReferences:
+  - unlitShader: {fileID: 10752, guid: 0000000000000000f000000000000000, type: 0}
   - pathTracingShader: {fileID: 7200000, guid: 128d86dae575ac44db9ba95de9200115, type: 3}
   executionOrder: 0
   icon: {instanceID: 0}

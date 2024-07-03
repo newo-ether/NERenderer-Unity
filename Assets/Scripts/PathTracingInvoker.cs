@@ -10,12 +10,15 @@ using Unity.Collections.LowLevel.Unsafe;
 public class PathTracingInvoker : MonoBehaviour
 {
     private GameObject displayPlane;
+    private new Camera camera;
+    public Shader unlitShader;
     
     public ComputeShader pathTracingShader;
 
     private ComputeBuffer pathTracingCameraBuffer;
     private ComputeBuffer pathTracingRenderOptionBuffer;
     private ComputeBuffer pathTracingPrimitivesBuffer;
+    private ComputeBuffer pathTracingEmissivePrimitivesBuffer;
     private ComputeBuffer pathTracingRandomBuffer;
 
     public int textureWidth = 1920;
@@ -25,17 +28,19 @@ public class PathTracingInvoker : MonoBehaviour
     public float russianRoulete = 0.8f;
 
     public bool accumulate = true;
+    private bool lastAccumulate = true;
 
     private new Renderer renderer;
     private RenderTexture renderTexture;
     private System.Random random = new();
 
     private int kernelHandle;
-    private int frameCount = 1;
+    private float frameCount = 1;
 
     private PathTracingCamera pathTracingCamera;
     private PathTracingRenderOption pathTracingRenderOption;
     private List<PathTracingPrimitive> pathTracingPrimitives;
+    private List<PathTracingPrimitive> pathTracingEmissivePrimitives;
     private uint[] pathTracingRandom;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -54,6 +59,53 @@ public class PathTracingInvoker : MonoBehaviour
         public float fov;
         public float focalLength;
         public float lenRadius;
+
+        public override bool Equals(object obj)
+        {
+            return base.Equals(obj);
+        }
+
+        public bool Equals(PathTracingCamera cam)
+        {
+            return pos == cam.pos
+                && look == cam.look
+                && up == cam.up
+                && right == cam.right
+                && fov == cam.fov
+                && focalLength == cam.focalLength
+                && lenRadius == cam.lenRadius;
+        }
+
+        public override int GetHashCode() => (pos,
+                                              look,
+                                              up,
+                                              right,
+                                              fov,
+                                              focalLength,
+                                              lenRadius)
+                                              .GetHashCode();
+
+        public static bool operator==(PathTracingCamera cameraA, PathTracingCamera cameraB)
+        {
+            return cameraA.pos == cameraB.pos
+                   && cameraA.look == cameraB.look
+                   && cameraA.up == cameraB.up
+                   && cameraA.right == cameraB.right
+                   && cameraA.fov == cameraB.fov
+                   && cameraA.focalLength == cameraB.focalLength
+                   && cameraA.lenRadius == cameraB.lenRadius;
+        }
+
+        public static bool operator!=(PathTracingCamera cameraA, PathTracingCamera cameraB)
+        {
+            return cameraA.pos != cameraB.pos
+                   || cameraA.look != cameraB.look
+                   || cameraA.up != cameraB.up
+                   || cameraA.right != cameraB.right
+                   || cameraA.fov != cameraB.fov
+                   || cameraA.focalLength != cameraB.focalLength
+                   || cameraA.lenRadius != cameraB.lenRadius;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -61,6 +113,28 @@ public class PathTracingInvoker : MonoBehaviour
     {
         public int maxDepth;
         public float russianRoulete;
+
+        public override bool Equals(object obj)
+        {
+            return base.Equals(obj);
+        }
+
+        public bool Equals(PathTracingRenderOption option)
+        {
+            return maxDepth == option.maxDepth && russianRoulete == option.russianRoulete;
+        }
+
+        public override int GetHashCode() => (maxDepth, russianRoulete).GetHashCode();
+
+        public static bool operator==(PathTracingRenderOption optionA, PathTracingRenderOption optionB)
+        {
+            return optionA.maxDepth == optionB.maxDepth && optionA.russianRoulete == optionB.russianRoulete;
+        }
+
+        public static bool operator!=(PathTracingRenderOption optionA, PathTracingRenderOption optionB)
+        {
+            return optionA.maxDepth != optionB.maxDepth || optionA.russianRoulete != optionB.russianRoulete;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -187,6 +261,19 @@ public class PathTracingInvoker : MonoBehaviour
         return primitives;
     }
 
+    List<PathTracingPrimitive> PickAllEmissivePrimitives(List<PathTracingPrimitive> allPrimitives)
+    {
+        List<PathTracingPrimitive> emissivePrimitives = new List<PathTracingPrimitive>();
+        foreach (PathTracingPrimitive primitive in allPrimitives)
+        {
+            if (primitive.material.emission != Vector3.zero)
+            {
+                emissivePrimitives.Add(primitive);
+            }
+        }
+        return emissivePrimitives;
+    }
+
     private void UpdateDisplayPlane()
     {
         float aspect = GetComponent<Camera>().aspect;
@@ -203,10 +290,10 @@ public class PathTracingInvoker : MonoBehaviour
 
     private PathTracingCamera UpdatePathTracingCamera()
     {
-        Camera camera = Camera.main;
         float aspect = camera.aspect;
 
         Vector3 pos = camera.transform.position;
+
         Vector3 look = camera.transform.forward;
         Vector3 up = camera.transform.up;
         Vector3 right = camera.transform.right;
@@ -274,8 +361,20 @@ public class PathTracingInvoker : MonoBehaviour
 
     private void Start()
     {
+        // Get Camera
+        camera = GetComponent<Camera>();
+
+        // Get Camera Data
+        pathTracingCamera = UpdatePathTracingCamera();
+
+        // Get Render Option Data
+        pathTracingRenderOption = UpdatePathTracingRenderOption();
+
         // Get Scene Primitives
         pathTracingPrimitives = GetAllPathTracingPrimitives();
+
+        // Pick Emissive Primitives
+        pathTracingEmissivePrimitives = PickAllEmissivePrimitives(pathTracingPrimitives);
 
         // Generate Ramdom Numbers
         pathTracingRandom = GenerateRandomNumbers();
@@ -287,7 +386,35 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingCameraBuffer = new ComputeBuffer(1, UnsafeUtility.SizeOf<PathTracingCamera>());
         pathTracingRenderOptionBuffer = new ComputeBuffer(1, UnsafeUtility.SizeOf<PathTracingRenderOption>());
         pathTracingPrimitivesBuffer = new ComputeBuffer(pathTracingPrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
+        pathTracingEmissivePrimitivesBuffer = new ComputeBuffer(pathTracingEmissivePrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
         pathTracingRandomBuffer = new ComputeBuffer(textureWidth * textureHeight, sizeof(uint));
+
+        // Setup Camera Buffer
+        pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
+        pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
+
+        // Setup Render Option Buffer
+        pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
+        pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
+
+        // Setup Primitives Buffer
+        pathTracingPrimitivesBuffer.SetData(pathTracingPrimitives);
+        pathTracingShader.SetBuffer(kernelHandle, "primitives", pathTracingPrimitivesBuffer);
+
+        // Setup Emissive Primitives Buffer
+        pathTracingEmissivePrimitivesBuffer.SetData(pathTracingEmissivePrimitives);
+        pathTracingShader.SetBuffer(kernelHandle, "emissivePrimitives", pathTracingEmissivePrimitivesBuffer);
+
+        // Setup Basic Variables
+        pathTracingShader.SetBool("accumulate", accumulate);
+        pathTracingShader.SetInt("renderWidth", textureWidth);
+        pathTracingShader.SetInt("renderHeight", textureHeight);
+        pathTracingShader.SetInt("primitiveCount", pathTracingPrimitives.Count);
+        pathTracingShader.SetInt("emissivePrimitiveCount", pathTracingEmissivePrimitives.Count);
+
+        // Setup Random Buffer
+        pathTracingRandomBuffer.SetData(pathTracingRandom);
+        pathTracingShader.SetBuffer(kernelHandle, "randomBuffer", pathTracingRandomBuffer);
 
         // Create Display Plane
         displayPlane = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -298,7 +425,7 @@ public class PathTracingInvoker : MonoBehaviour
 
         // Bind Render Texture to Display Plane
         renderer = displayPlane.GetComponent<MeshRenderer>();
-        renderer.material = new Material(Shader.Find("Unlit/Texture"));
+        renderer.material = new Material(unlitShader);
         renderer.enabled = true;
         renderer.material.SetTexture("_MainTex", renderTexture);
     }
@@ -309,39 +436,41 @@ public class PathTracingInvoker : MonoBehaviour
         UpdateDisplayPlane();
 
         // Update Camera Data
-        pathTracingCamera = UpdatePathTracingCamera();
+        PathTracingCamera newPathTracingCamera = UpdatePathTracingCamera();
+        if (newPathTracingCamera != pathTracingCamera)
+        {
+            pathTracingCamera = newPathTracingCamera;
+            pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
+            pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
+            frameCount = 1;
+        }
 
         // Update Render Option Data
-        pathTracingRenderOption = UpdatePathTracingRenderOption();
+        PathTracingRenderOption newPathTracingRenderOption = UpdatePathTracingRenderOption();
+        if (newPathTracingRenderOption != pathTracingRenderOption)
+        {
+            pathTracingRenderOption = newPathTracingRenderOption;
+            pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
+            pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
+            frameCount = 1;
+        }
 
-        // Setup Camera Buffer
-        pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
-        pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
-
-        // Setup RenderOption Buffer
-        pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
-        pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
-
-        // Setup Primitives Buffer
-        pathTracingPrimitivesBuffer.SetData(pathTracingPrimitives);
-        pathTracingShader.SetBuffer(kernelHandle, "primitives", pathTracingPrimitivesBuffer);
-
-        // Setup Random Buffer
-        pathTracingRandomBuffer.SetData(pathTracingRandom);
-        pathTracingShader.SetBuffer(kernelHandle, "randomBuffer", pathTracingRandomBuffer);
+        // Update Accumulate
+        if (accumulate != lastAccumulate)
+        {
+            lastAccumulate = accumulate;
+            pathTracingShader.SetBool("accumulate", accumulate);
+            frameCount = 1;
+        }
 
         // Setup Basic Variables
-        pathTracingShader.SetBool("accumulate", accumulate);
-        pathTracingShader.SetInt("frameCount", frameCount);
-        pathTracingShader.SetInt("renderWidth", textureWidth);
-        pathTracingShader.SetInt("renderHeight", textureHeight);
-        pathTracingShader.SetInt("primitiveCount", pathTracingPrimitives.Count);
+        pathTracingShader.SetInt("frameCount", (int)frameCount);
         pathTracingShader.SetInt("extraSeed", random.Next());
         
         // Execute Shader
         pathTracingShader.Dispatch(kernelHandle, textureWidth / 20, textureHeight / 20, 1);
 
         // Increase Frame Count
-        frameCount++;
+        frameCount += 1.0f;
     }
 }
