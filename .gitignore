@@ -1,6 +1,8 @@
+.vs
 Build
 Library
 Logs
+obj
 Temp
 .vsconfig
 Assembly-CSharp.csproj
