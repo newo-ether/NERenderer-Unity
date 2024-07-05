@@ -4,6 +4,7 @@
 #define __RENDERER__
 
 #include "Ray.hlsl"
+#include "RayBuffer.hlsl"
 #include "Scene.hlsl"
 #include "IntersectInfo.hlsl"
 #include "Material.hlsl"
@@ -20,7 +21,7 @@ struct RenderOption
 // Uniform Variable
 StructuredBuffer<RenderOption> renderOptionBuffer;
 
-float3 PathTracing(Ray ray)
+float3 PathTracing(Ray ray, uint2 screenIndex)
 {
     RenderOption renderOption = renderOptionBuffer[0];
     float3 Lo = float3(0.0f, 0.0f, 0.0f);
@@ -28,14 +29,20 @@ float3 PathTracing(Ray ray)
     int maxDepth = renderOption.maxDepth;
     float rr = renderOption.russianRoulete;
     float invrr = 1.0f / rr;
-
+    
+    const uint offset = RayBufferGetOffset(screenIndex, maxDepth);
+    
+    RayBufferSetRay(RayInit((float3) 0.0f, (float3) 0.0f, 0.0f, 0.0f), offset, 0);
+    RayBufferSetEnd(offset, 0);
+    
     for (int depth = 0; depth < maxDepth; depth++)
     {
         IntersectInfo isect = SceneIntersect(ray);
         if (isect.isHit)
         {
+            RayBufferSetRay(RayInit(ray.origin, ray.dir, ray.tMin, isect.tHit), offset, depth);
             Material material = isect.hitMaterial;
-            if (depth == 0 && MaterialIsEmissive(material) && dot(isect.incomeDir, isect.hitNormal) > 0.0f)
+            if (depth == 0 && MaterialIsEmissive(material) && isect.isFront)
             {
                 Lo = MaterialGetEmission(material);
             }
@@ -46,11 +53,12 @@ float3 PathTracing(Ray ray)
             
             if (depth >= 2 && Random01() > rr)
             {
+                RayBufferSetEnd(offset, depth);
                 break;
             }
             
             float3 newDir = RandomCosineWeightedHemisphereDir(isect.hitNormal);
-            ray = RayInit(isect.hitPoint, newDir, EPSILON, INF);
+            ray = RayInit(isect.hitPoint, newDir, 0.0f, INF);
             float invPdf = PI;
             decay *= MaterialBSDF(material, newDir, isect.incomeDir, isect.hitNormal)
                      * invPdf;
@@ -62,9 +70,11 @@ float3 PathTracing(Ray ray)
         }
         else
         {
+            RayBufferSetEnd(offset, max(depth - 1, 0));
             break;
         }
     }
+    RayBufferSetEnd(offset, max(maxDepth - 1, 0));
     return Lo;
 }
 

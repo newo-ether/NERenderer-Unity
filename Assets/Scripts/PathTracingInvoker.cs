@@ -7,10 +7,11 @@ using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
 
+using Drawing;
+
 public class PathTracingInvoker : MonoBehaviour
 {
     private GameObject displayPlane;
-    private new Camera camera;
     public Shader unlitShader;
     
     public ComputeShader pathTracingShader;
@@ -20,12 +21,20 @@ public class PathTracingInvoker : MonoBehaviour
     private ComputeBuffer pathTracingPrimitivesBuffer;
     private ComputeBuffer pathTracingEmissivePrimitivesBuffer;
     private ComputeBuffer pathTracingRandomBuffer;
+    private ComputeBuffer pathTracingRayBuffer;
 
     public int textureWidth = 1920;
     public int textureHeight = 1080;
 
-    public int maxDepth = 200;
-    public float russianRoulete = 0.8f;
+    public int maxDepth = 10;
+    public float russianRoulete = 0.9f;
+
+    private string maxDepthString;
+    private string russianRouleteString;
+
+    [Range(0.0f, 1.0f)]
+    public float opacity = 1.0f;
+    private string opacityString;
 
     public bool accumulate = true;
     private bool lastAccumulate = true;
@@ -35,12 +44,24 @@ public class PathTracingInvoker : MonoBehaviour
     private System.Random random = new();
 
     private int kernelHandle;
-    private float frameCount = 1;
+    private int frameCount = 1;
+
+    public bool showDebugWindow = true;
+    private Rect debugWindowRect = new Rect(10, 10, 400, 0);
+    private bool debuggingRay = false;
+    private Vector2 selectedPixelIndex;
+    private Vector2 selectedPixelOffset;
+    private bool selectingPixel = false;
+    private bool isPixelSelected = false;
+    private Vector2 scrollPosition = new Vector2(0.0f, 0.0f);
+    private Vector3 cameraPosition;
+    private Quaternion cameraRotation;
 
     private PathTracingCamera pathTracingCamera;
     private PathTracingRenderOption pathTracingRenderOption;
     private List<PathTracingPrimitive> pathTracingPrimitives;
     private List<PathTracingPrimitive> pathTracingEmissivePrimitives;
+    private PathTracingRay[] pathTracingRay;
     private uint[] pathTracingRandom;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -195,6 +216,16 @@ public class PathTracingInvoker : MonoBehaviour
         public PathTracingMaterial material;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PathTracingRay
+    {
+        public Vector3 origin;
+        public Vector3 dir;
+        public float tMin;
+        public float tMax;
+        public int isEnd;
+    }
+
     private GameObject[] GetAllGameObjects()
     {
         return FindObjectsOfType(typeof(GameObject)) as GameObject[];
@@ -278,7 +309,7 @@ public class PathTracingInvoker : MonoBehaviour
     {
         float aspect = GetComponent<Camera>().aspect;
         float fov = GetComponent<Camera>().fieldOfView;
-        float near = GetComponent<Camera>().nearClipPlane * 1.0001f;
+        float near = GetComponent<Camera>().nearClipPlane * 1.001f;
         float nearHeight = near * Mathf.Tan((fov * 0.5f) * Mathf.Deg2Rad) * 2.0f;
         float nearWidth = nearHeight * aspect;
         Matrix4x4 matrix = GetComponent<Camera>().transform.localToWorldMatrix
@@ -290,16 +321,16 @@ public class PathTracingInvoker : MonoBehaviour
 
     private PathTracingCamera UpdatePathTracingCamera()
     {
-        float aspect = camera.aspect;
+        float aspect = GetComponent<Camera>().aspect;
 
-        Vector3 pos = camera.transform.position;
+        Vector3 pos = GetComponent<Camera>().transform.position;
 
-        Vector3 look = camera.transform.forward;
-        Vector3 up = camera.transform.up;
-        Vector3 right = camera.transform.right;
+        Vector3 look = GetComponent<Camera>().transform.forward;
+        Vector3 up = GetComponent<Camera>().transform.up;
+        Vector3 right = GetComponent<Camera>().transform.right;
 
-        float fovVertical = camera.fieldOfView;
-        float focalLength = camera.focalLength;
+        float fovVertical = GetComponent<Camera>().fieldOfView;
+        float focalLength = GetComponent<Camera>().focalLength;
 
         Vector3 screenPlaneOrigin = pos + look * focalLength;
         float screenPlaneHeight = 2.0f * Mathf.Tan(fovVertical * 0.5f * Mathf.Deg2Rad) * focalLength;
@@ -354,21 +385,44 @@ public class PathTracingInvoker : MonoBehaviour
         RenderTexture texture;
         texture = new RenderTexture(textureWidth, textureHeight, 0);
         texture.enableRandomWrite = true;
+        texture.filterMode = FilterMode.Point;
         texture.Create();
 
         return texture;
     }
 
+    private Vector2 GetScreenGeometry()
+    {
+        return new Vector2(Screen.width, Screen.height);
+    }
+
+    private Vector2 GetMouseScreenOffset()
+    {
+        Vector2 pixel = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+        Vector2 screen = GetScreenGeometry();
+        pixel = new Vector2(Mathf.Clamp(pixel.x, 0.0f, screen.x), screen.y - Mathf.Clamp(pixel.y, 0.0f, screen.y));
+        return pixel / screen;
+    }
+
+    private Vector2 GetMousePositionTextureIndex()
+    {
+        Vector2 index = GetMouseScreenOffset() * new Vector2(textureWidth, textureHeight);
+        return new Vector2(Mathf.Clamp(Mathf.Floor(index.x), 0.0f, textureWidth - 1.0f),
+                           Mathf.Clamp(Mathf.Floor(index.y), 0.0f, textureHeight - 1.0f));
+    }
+
     private void Start()
     {
-        // Get Camera
-        camera = GetComponent<Camera>();
-
         // Get Camera Data
         pathTracingCamera = UpdatePathTracingCamera();
 
         // Get Render Option Data
         pathTracingRenderOption = UpdatePathTracingRenderOption();
+
+        // Setup GUI Strings
+        maxDepthString = maxDepth.ToString();
+        russianRouleteString = russianRoulete.ToString();
+        opacityString = opacity.ToString();
 
         // Get Scene Primitives
         pathTracingPrimitives = GetAllPathTracingPrimitives();
@@ -378,6 +432,9 @@ public class PathTracingInvoker : MonoBehaviour
 
         // Generate Ramdom Numbers
         pathTracingRandom = GenerateRandomNumbers();
+
+        // Create Ray Array
+        pathTracingRay = new PathTracingRay[textureWidth * textureHeight * maxDepth];
         
         // Create Render Texture
         renderTexture = CreateRenderTexture();
@@ -388,6 +445,7 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingPrimitivesBuffer = new ComputeBuffer(pathTracingPrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
         pathTracingEmissivePrimitivesBuffer = new ComputeBuffer(pathTracingEmissivePrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
         pathTracingRandomBuffer = new ComputeBuffer(textureWidth * textureHeight, sizeof(uint));
+        pathTracingRayBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRay>());
 
         // Setup Camera Buffer
         pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
@@ -404,6 +462,9 @@ public class PathTracingInvoker : MonoBehaviour
         // Setup Emissive Primitives Buffer
         pathTracingEmissivePrimitivesBuffer.SetData(pathTracingEmissivePrimitives);
         pathTracingShader.SetBuffer(kernelHandle, "emissivePrimitives", pathTracingEmissivePrimitivesBuffer);
+
+        // Setup Ray Buffer
+        pathTracingShader.SetBuffer(kernelHandle, "rayBuffer", pathTracingRayBuffer);
 
         // Setup Basic Variables
         pathTracingShader.SetBool("accumulate", accumulate);
@@ -428,6 +489,7 @@ public class PathTracingInvoker : MonoBehaviour
         renderer.material = new Material(unlitShader);
         renderer.enabled = true;
         renderer.material.SetTexture("_MainTex", renderTexture);
+        renderer.material.SetFloat("_Opacity", opacity);
     }
 
     private void Update()
@@ -435,42 +497,353 @@ public class PathTracingInvoker : MonoBehaviour
         // Update Display Plane
         UpdateDisplayPlane();
 
-        // Update Camera Data
-        PathTracingCamera newPathTracingCamera = UpdatePathTracingCamera();
-        if (newPathTracingCamera != pathTracingCamera)
-        {
-            pathTracingCamera = newPathTracingCamera;
-            pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
-            pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
-            frameCount = 1;
-        }
+        // Update Display Plane Opacity
+        renderer.material.SetFloat("_Opacity", opacity);
 
-        // Update Render Option Data
-        PathTracingRenderOption newPathTracingRenderOption = UpdatePathTracingRenderOption();
-        if (newPathTracingRenderOption != pathTracingRenderOption)
+        // Draw Debug Rays
+        if (debuggingRay)
         {
-            pathTracingRenderOption = newPathTracingRenderOption;
-            pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
-            pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
-            frameCount = 1;
-        }
+            if (isPixelSelected)
+            {
+                float aspect = GetComponent<Camera>().aspect;
+                float fov = GetComponent<Camera>().fieldOfView;
+                float near = GetComponent<Camera>().nearClipPlane * 1.001f;
+                float nearHeight = near * Mathf.Tan((fov * 0.5f) * Mathf.Deg2Rad) * 2.0f;
+                float nearWidth = nearHeight * aspect;
+                Matrix4x4 cameraToWorld = GetComponent<Camera>().transform.localToWorldMatrix;
+                Vector2 mouseOffset = selectedPixelOffset - new Vector2(0.5f, 0.5f);
+                Vector2 pixelGeometry = new Vector2(nearWidth / textureWidth, nearHeight / textureHeight);
 
-        // Update Accumulate
-        if (accumulate != lastAccumulate)
+                Vector3 center = pixelGeometry
+                                 * new Vector2(Mathf.Floor(mouseOffset.x * textureWidth) + 0.5f,
+                                               Mathf.Floor(mouseOffset.y * textureHeight) + 0.5f);
+
+                center = cameraToWorld.MultiplyPoint(new Vector3(center.x, center.y, near));
+                Vector3 normal = cameraToWorld.MultiplyVector(new Vector3(0.0f, 0.0f, -1.0f));
+
+                Draw.ingame.WirePlane(center,
+                                      normal,
+                                      pixelGeometry,
+                                      new Color(0.8f, 0.8f, 0.2f));
+
+                PathTracingRay ray;
+                int offset = ((int)selectedPixelIndex.y * textureWidth + (int)selectedPixelIndex.x) * maxDepth;
+                for (int i = 0; i < maxDepth; i++)
+                {
+                    ray = pathTracingRay[offset + i];
+                    Vector3 begin = ray.origin + ray.dir * ray.tMin;
+                    Vector3 end = ray.origin + ray.dir * ray.tMax;
+                    Draw.ingame.Line(begin, end, new Color(0.8f, 0.8f, 0.2f));
+                    if (ray.isEnd == 1)
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        else
         {
-            lastAccumulate = accumulate;
-            pathTracingShader.SetBool("accumulate", accumulate);
-            frameCount = 1;
-        }
+            // Update Camera Data
+            PathTracingCamera newPathTracingCamera = UpdatePathTracingCamera();
+            if (newPathTracingCamera != pathTracingCamera)
+            {
+                pathTracingCamera = newPathTracingCamera;
+                pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
+                pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
+                frameCount = 1;
+            }
 
-        // Setup Basic Variables
-        pathTracingShader.SetInt("frameCount", (int)frameCount);
-        pathTracingShader.SetInt("extraSeed", random.Next());
+            // Update Render Option Data
+            PathTracingRenderOption newPathTracingRenderOption = UpdatePathTracingRenderOption();
+            if (newPathTracingRenderOption != pathTracingRenderOption)
+            {
+                pathTracingRenderOption = newPathTracingRenderOption;
+                pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
+                pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
+
+                if (newPathTracingRenderOption.maxDepth != pathTracingRenderOption.maxDepth)
+                {
+                    pathTracingRay = new PathTracingRay[textureWidth * textureHeight * maxDepth];
+                    pathTracingRayBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRay>());
+                    pathTracingShader.SetBuffer(kernelHandle, "rayBuffer", pathTracingRayBuffer);
+                }
+
+                frameCount = 1;
+            }
+
+            // Update Accumulate
+            if (accumulate != lastAccumulate)
+            {
+                lastAccumulate = accumulate;
+                pathTracingShader.SetBool("accumulate", accumulate);
+                frameCount = 1;
+            }
+
+            // Setup Basic Variables
+            pathTracingShader.SetInt("frameCount", frameCount);
+            pathTracingShader.SetInt("extraSeed", random.Next());
+
+            // Execute Shader
+            pathTracingShader.Dispatch(kernelHandle, textureWidth / 20, textureHeight / 20, 1);
+
+            // Increase Frame Count
+            frameCount += 1;
+        }
+    }
+
+    void OnGUI()
+    {
+        if (showDebugWindow)
+        {
+            debugWindowRect = GUILayout.Window(0, debugWindowRect, DebugWindow, "Debug Window", GUILayout.Width(400), GUILayout.Height(0));
+        }
+    }
+
+    void DebugWindow(int windowID)
+    {
+        // Begin Accumulate
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Accumulate");
+
+        GUI.enabled = !debuggingRay;
+
+        accumulate = GUILayout.Toggle(accumulate, " Toggle Frame Accumulation", GUILayout.Width(226));
         
-        // Execute Shader
-        pathTracingShader.Dispatch(kernelHandle, textureWidth / 20, textureHeight / 20, 1);
+        GUI.enabled = true;
 
-        // Increase Frame Count
-        frameCount += 1.0f;
+        GUILayout.EndHorizontal();
+        // End Accumulate
+
+
+        // Begin Max Depth
+        GUILayout.BeginHorizontal();
+        
+        GUILayout.Label("Max Depth");
+
+        GUI.enabled = !debuggingRay;
+
+        if (GUILayout.Button("+10", GUILayout.Width(40)))
+        {
+            maxDepth = Math.Max(maxDepth + 10, 1);
+            maxDepthString = maxDepth.ToString();
+        }
+        if (GUILayout.Button("+1", GUILayout.Width(40)))
+        {
+            maxDepth = Math.Max(maxDepth + 1, 1);
+            maxDepthString = maxDepth.ToString();
+        }
+        
+        maxDepthString = GUILayout.TextArea(maxDepthString, GUILayout.Width(50));
+        int.TryParse(maxDepthString, out maxDepth);
+        maxDepth = Math.Max(1, maxDepth);
+
+        if (GUILayout.Button("-1", GUILayout.Width(40)))
+        {
+            maxDepth = Math.Max(maxDepth - 1, 1);
+            maxDepthString = maxDepth.ToString();
+        }
+        if (GUILayout.Button("-10", GUILayout.Width(40)))
+        {
+            maxDepth = Math.Max(maxDepth - 10, 1);
+            maxDepthString = maxDepth.ToString();
+        }
+
+        GUI.enabled = true;
+
+        GUILayout.EndHorizontal();
+        // End Max Depth
+
+
+        // Begin Russian Roulete
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Russian Roulete");
+
+        GUI.enabled = !debuggingRay;
+
+        if (GUILayout.Button("+.01", GUILayout.Width(40)))
+        {
+            russianRoulete = Mathf.Clamp01(russianRoulete + 0.01f);
+            russianRouleteString = russianRoulete.ToString();
+        }
+        if (GUILayout.Button("+.1", GUILayout.Width(40)))
+        {
+            russianRoulete = Mathf.Clamp01(russianRoulete + 0.1f);
+            russianRouleteString = russianRoulete.ToString();
+        }
+
+        russianRouleteString = GUILayout.TextArea(russianRouleteString, GUILayout.Width(50));
+        float.TryParse(russianRouleteString, out russianRoulete);
+        russianRoulete = Mathf.Clamp01(russianRoulete);
+
+        if (GUILayout.Button("-.1", GUILayout.Width(40)))
+        {
+            russianRoulete = Mathf.Clamp01(russianRoulete - 0.1f);
+            russianRouleteString = russianRoulete.ToString();
+        }
+        if (GUILayout.Button("-.01", GUILayout.Width(40)))
+        {
+            russianRoulete = Mathf.Clamp01(russianRoulete - 0.01f);
+            russianRouleteString = russianRoulete.ToString();
+        }
+
+        GUI.enabled = true;
+
+        GUILayout.EndHorizontal();
+        // End Russian Roulete
+        
+
+        // Begin Opacity
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Opacity");
+
+        if (GUILayout.Button("+.01", GUILayout.Width(40)))
+        {
+            opacity = Mathf.Clamp01(opacity + 0.01f);
+            opacityString = opacity.ToString();
+        }
+        if (GUILayout.Button("+.1", GUILayout.Width(40)))
+        {
+            opacity = Mathf.Clamp01(opacity + 0.1f);
+            opacityString = opacity.ToString();
+        }
+
+        opacityString = GUILayout.TextArea(opacityString, GUILayout.Width(50));
+        float.TryParse(opacityString, out opacity);
+        opacity = Mathf.Clamp01(opacity);
+
+        if (GUILayout.Button("-.1", GUILayout.Width(40)))
+        {
+            opacity = Mathf.Clamp01(opacity - 0.1f);
+            opacityString = opacity.ToString();
+        }
+        if (GUILayout.Button("-.01", GUILayout.Width(40)))
+        {
+            opacity = Mathf.Clamp01(opacity - 0.01f);
+            opacityString = opacity.ToString();
+        }
+
+        GUILayout.EndHorizontal();
+        // End Opacity
+
+        
+        // Begin Debug Ray
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Debug Ray");
+
+        string debugRayText = debuggingRay ? "End Debugging" : "Start Debugging";
+
+        if (GUILayout.Button(debugRayText, GUILayout.Width(226)))
+        {
+            if (debuggingRay)
+            {
+                debuggingRay = false;
+                selectingPixel = false;
+                isPixelSelected = false;
+            }
+            else
+            {
+                debuggingRay = true;
+                selectingPixel = false;
+                isPixelSelected = false;
+
+                pathTracingRayBuffer.GetData(pathTracingRay);
+                cameraPosition = GetComponent<Camera>().transform.position;
+                cameraRotation = GetComponent<Camera>().transform.rotation;
+            }
+        }
+
+        GUILayout.EndHorizontal();
+        // End Debug Ray
+
+
+        // Begin Select Pixel
+        if (debuggingRay)
+        {
+            GUILayout.BeginHorizontal();
+
+            string selectPixelText = selectingPixel ? "Cancel Selecting Pixel" : "Select Pixel";
+
+            if (GUILayout.Button(selectPixelText))
+            {
+                if (selectingPixel)
+                {
+                    selectingPixel = false;
+                    isPixelSelected = false;
+                }
+                else
+                {
+                    selectingPixel = true;
+                    isPixelSelected = false;
+                }
+            }
+
+            if (GUILayout.Button("Restore Camera Transform", GUILayout.Width(226)))
+            {
+                GetComponent<Transform>().SetPositionAndRotation(cameraPosition, cameraRotation);
+            }
+
+            GUILayout.EndHorizontal();
+        }
+        // End Select Pixel
+
+
+        // Begin Pixel Label
+        if (selectingPixel)
+        {
+            selectedPixelIndex = GetMousePositionTextureIndex();
+            selectedPixelOffset = GetMouseScreenOffset();
+            isPixelSelected = true;
+
+            if (Input.GetMouseButtonDown(0) && !debugWindowRect.Contains(GUIUtility.GUIToScreenPoint(Event.current.mousePosition)))
+            {
+                selectingPixel = false;
+            }
+
+            GUILayout.Label("Selecting Pixel: ("
+                            + ((int)selectedPixelIndex.x).ToString()
+                            + ", "
+                            + ((int)selectedPixelIndex.y).ToString() + ")");
+        }
+        else if (isPixelSelected)
+        {
+            GUILayout.Label("Pixel Selected: ("
+                            + ((int)selectedPixelIndex.x).ToString()
+                            + ", "
+                            + ((int)selectedPixelIndex.y).ToString() + ")");
+        }
+        // End Pixel Label
+
+
+        // Begin Ray Path
+        if (isPixelSelected)
+        {
+            PathTracingRay ray;
+            string text = "";
+            int offset = ((int)selectedPixelIndex.y * textureWidth + (int)selectedPixelIndex.x) * maxDepth;
+            for (int i = 0; i < maxDepth; i++)
+            {
+                ray = pathTracingRay[offset + i];
+                Vector3 begin = ray.origin + ray.dir * ray.tMin;
+                Vector3 end = ray.origin + ray.dir * ray.tMax;
+                text += "[" + i.ToString() + "] Begin=" + begin.ToString() + " End=" + end.ToString() + "\n";
+                if (ray.isEnd == 1)
+                {
+                    break;
+                }
+            }
+
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(100));
+
+            GUILayout.Label(text);
+
+            GUILayout.EndScrollView();
+        }
+        // End Ray Path
+
+        GUI.DragWindow(new Rect(0, 0, 10000, 10000));
     }
 }

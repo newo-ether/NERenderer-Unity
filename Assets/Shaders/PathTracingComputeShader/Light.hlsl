@@ -16,13 +16,13 @@ float3 SampleOneLight(IntersectInfo isect)
     float3 samplePoint = ShapeSamplePoint(samplePrimitive.shape);
     float3 wi = normalize(samplePoint - isect.hitPoint);
     float dist = length(samplePoint - isect.hitPoint);
-    if (SceneIsIntersect(RayInit(isect.hitPoint, wi, EPSILON, dist * 0.999f)))
+    if (SceneIsIntersect(RayInit(isect.hitPoint, wi, 0.0f, dist * 0.999f)))
     {
         return (float3) 0.0f;
     }
     else
     {
-        float3 normal = ShapeGetNormal(samplePrimitive.shape);
+        float3 normal = ShapeGetEmissionNormal(samplePrimitive.shape);
         if (dot(-wi, normal) <= 0.0f)
         {
             return (float3) 0.0f;
@@ -49,11 +49,11 @@ float3 SampleAllLights(IntersectInfo isect)
         float3 samplePoint = ShapeSamplePoint(samplePrimitive.shape);
         float3 wi = normalize(samplePoint - isect.hitPoint);
         float dist = length(samplePoint - isect.hitPoint);
-        if (SceneIsIntersect(RayInit(isect.hitPoint, wi, EPSILON, dist * 0.999f)))
+        if (SceneIsIntersect(RayInit(isect.hitPoint, wi, 0.0f, dist * 0.999f)))
         {
             continue;
         }
-        float3 normal = ShapeGetNormal(samplePrimitive.shape);
+        float3 normal = ShapeGetEmissionNormal(samplePrimitive.shape);
         if (dot(-wi, normal) < 0.0f)
         {
             continue;

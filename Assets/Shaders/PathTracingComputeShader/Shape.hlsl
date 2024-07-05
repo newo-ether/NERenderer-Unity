@@ -4,6 +4,7 @@
 #define __SHAPE__
 
 #include "IntersectInfo.hlsl"
+#include "Constant.hlsl"
 #include "Random.hlsl"
 #include "Material.hlsl"
 #include "Ray.hlsl"
@@ -20,6 +21,7 @@ IntersectInfo ShapeIntersect(Shape shape, Ray ray)
     float3 e2 = shape.vertex[2] - shape.vertex[1];
     
     float3 normal = normalize(cross(e1, e2));
+    
     float t = dot(shape.vertex[0] - ray.origin, normal) / dot(ray.dir, normal);
     
     if (t <= ray.tMin || t >= ray.tMax)
@@ -36,7 +38,13 @@ IntersectInfo ShapeIntersect(Shape shape, Ray ray)
     
         if ((b0 >= 0 && b1 >= 0 && b2 >= 0) || (b0 <= 0 && b1 <= 0 && b2 <= 0))
         {
-            return IntersectInfoInit(t, p, normal, -ray.dir, MaterialInitEmpty());
+            bool isFront = true;
+            if (dot(-ray.dir, normal) < 0.0f)
+            {
+                normal = -normal;
+                isFront = false;
+            }
+            return IntersectInfoInit(isFront, t, p + normal * EPSILON, normal, -ray.dir, MaterialInitEmpty());
         }
         else
         {
@@ -52,6 +60,7 @@ bool ShapeIsIntersect(Shape shape, Ray ray)
     float3 e2 = shape.vertex[2] - shape.vertex[1];
     
     float3 normal = normalize(cross(e1, e2));
+
     float t = dot(shape.vertex[0] - ray.origin, normal) / dot(ray.dir, normal);
     
     if (t <= ray.tMin || t >= ray.tMax)
@@ -87,14 +96,14 @@ float3 ShapeSamplePoint(Shape shape)
            + (shape.vertex[2] - shape.vertex[0]) * v;
 }
 
-float3 ShapeGetNormal(Shape shape)
+float3 ShapeGetEmissionNormal(Shape shape)
 {
     return normalize(cross(shape.vertex[1] - shape.vertex[0], shape.vertex[2] - shape.vertex[1]));
 }
 
 float ShapeGetArea(Shape shape)
 {
-    return 0.5 * length(cross(shape.vertex[1] - shape.vertex[0], shape.vertex[2] - shape.vertex[0]));
+    return 0.5f * length(cross(shape.vertex[1] - shape.vertex[0], shape.vertex[2] - shape.vertex[0]));
 }
 
 #endif // __SHAPE__

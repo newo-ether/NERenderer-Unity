@@ -9,6 +9,7 @@
 struct IntersectInfo
 {
     bool isHit;
+    bool isFront;
     float tHit;
     float3 hitPoint;
     float3 hitNormal;
@@ -16,7 +17,8 @@ struct IntersectInfo
     Material hitMaterial;
 };
 
-IntersectInfo IntersectInfoInit(float tHit,
+IntersectInfo IntersectInfoInit(bool isFront,
+                                float tHit,
                                 float3 hitPoint,
                                 float3 hitNormal,
                                 float3 incomeDir,
@@ -25,6 +27,7 @@ IntersectInfo IntersectInfoInit(float tHit,
     IntersectInfo isect =
     {
         true,
+        isFront,
         tHit,
         hitPoint,
         hitNormal,
@@ -38,6 +41,7 @@ IntersectInfo IntersectInfoInitNone()
 {
     IntersectInfo isect =
     {
+        false,
         false,
         INF,
         (float3) 0.0f,

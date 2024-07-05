@@ -50,7 +50,7 @@ float2 RandomDiskSample()
 float3 RandomSphereDir()
 {
     float z = Random11();
-    float r = sqrt(1.0f - z * z);
+    float r = sqrt(saturate(1.0f - z * z));
     float phi = Random01() * TWOPI;
     return float3(r * cos(phi), r * sin(phi), z);
 }

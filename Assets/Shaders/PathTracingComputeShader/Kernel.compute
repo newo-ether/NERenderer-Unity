@@ -21,7 +21,7 @@ void Render (uint3 id : SV_DispatchThreadID)
     RandomInit(screenIndex);
     Ray ray = CameraGetSampleRay(screenIndex);
     
-    float3 result = PathTracing(ray);
+    float3 result = PathTracing(ray, screenIndex);
     if (accumulate)
     {
         AccumulateFilmPixel(screenIndex, float4(result, 1.0f), frameCount);
