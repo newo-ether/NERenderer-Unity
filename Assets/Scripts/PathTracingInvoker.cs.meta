@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: 6ae9284d4ebf8e54d95758e828d72391
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - unlitShader: {fileID: 4800000, guid: a0de4309f9bcde241adefaea1717dba6, type: 3}
+  - pathTracingShader: {fileID: 7200000, guid: 128d86dae575ac44db9ba95de9200115, type: 3}
+  executionOrder: 200
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

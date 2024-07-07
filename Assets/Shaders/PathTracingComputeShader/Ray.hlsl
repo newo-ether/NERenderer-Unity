@@ -21,6 +21,16 @@ Ray RayInit(float3 origin, float3 dir, float tMin, float tMax)
     return ray;
 }
 
+Ray RayInitEmpty()
+{
+    Ray ray;
+    ray.origin = (float3) 0.0f;
+    ray.dir = (float3) 0.0f;
+    ray.tMin = 0.0f;
+    ray.tMax = 0.0f;
+    return ray;
+}
+
 float3 RayAt(Ray ray, float t)
 {
     return ray.origin + ray.dir * t;

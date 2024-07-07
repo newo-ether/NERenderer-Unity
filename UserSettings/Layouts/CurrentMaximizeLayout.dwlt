@@ -520,9 +520,9 @@ MonoBehaviour:
   m_PlayAudio: 0
   m_AudioPlay: 0
   m_Position:
-    m_Target: {x: -3.1053581, y: 4.6197343, z: -3.183526}
+    m_Target: {x: -1.482447, y: 4.2363667, z: -3.355873}
     speed: 2
-    m_Value: {x: -3.1053581, y: 4.6197343, z: -3.183526}
+    m_Value: {x: -1.482447, y: 4.2363667, z: -3.355873}
   m_RenderMode: 0
   m_CameraMode:
     drawMode: 0
@@ -568,9 +568,9 @@ MonoBehaviour:
     m_GridAxis: 1
     m_gridOpacity: 0.5
   m_Rotation:
-    m_Target: {x: -0.03634376, y: -0.34218433, z: -0.013243355, w: 0.9388641}
+    m_Target: {x: -0.022589048, y: -0.3011734, z: -0.007133109, w: 0.95330256}
     speed: 2
-    m_Value: {x: -0.03634281, y: -0.3421754, z: -0.013243009, w: 0.9388396}
+    m_Value: {x: -0.022588458, y: -0.30116552, z: -0.0071329228, w: 0.95327765}
   m_Size:
     m_Target: 7.97946
     speed: 2
@@ -684,7 +684,7 @@ MonoBehaviour:
   m_MinSize: {x: 100, y: 100}
   m_MaxSize: {x: 8096, y: 16192}
   vertical: 1
-  controlID: 799
+  controlID: 1052
   draggingID: 0
 --- !u!114 &9
 MonoBehaviour:
@@ -705,8 +705,8 @@ MonoBehaviour:
     y: 0
     width: 579
     height: 515
-  m_MinSize: {x: 202, y: 221}
-  m_MaxSize: {x: 4002, y: 4021}
+  m_MinSize: {x: 200, y: 200}
+  m_MaxSize: {x: 4000, y: 4000}
   m_ActualView: {fileID: 10}
   m_Panes:
   - {fileID: 10}
@@ -751,7 +751,7 @@ MonoBehaviour:
       scrollPos: {x: 0, y: 0}
       m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: 22fbffff
+      m_ExpandedIDs: 16fbffff
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -846,7 +846,7 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Shaders/PathTracingComputeShader
+    - Assets/Scripts
     m_Globs: []
     m_OriginalText: 
     m_ImportLogFlags: 0
@@ -854,16 +854,16 @@ MonoBehaviour:
   m_ViewMode: 1
   m_StartGridSize: 16
   m_LastFolders:
-  - Assets/Shaders/PathTracingComputeShader
+  - Assets/Scripts
   m_LastFoldersGridSize: 16
   m_LastProjectPath: D:\workspace\Projects\Unity Projects\NERenderer-Unity
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
     scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: 546e0000
-    m_LastClickedID: 28244
-    m_ExpandedIDs: 00000000946d0000966d000000ca9a3b
+    m_SelectedIDs: 526e0000
+    m_LastClickedID: 28242
+    m_ExpandedIDs: 00000000966d0000986d000000ca9a3b
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -891,7 +891,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: 00000000946d0000966d000000ca9a3b
+    m_ExpandedIDs: 00000000966d0000986d000000ca9a3b
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 

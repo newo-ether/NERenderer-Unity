@@ -55,12 +55,12 @@ Shader "Custom/Path Tracing Shader"
 
             fixed4 frag(v2f i) : SV_TARGET
             {
-                if (_Emission.r != 0.0f || _Emission.g != 0.0f || _Emission.b != 0.0f)
+                fixed3 viewDir = normalize(_WorldSpaceCameraPos.xyz - i.worldPos.xyz);
+                fixed3 worldNormal = normalize(i.worldNormal);
+                if ((_Emission.r != 0.0f || _Emission.g != 0.0f || _Emission.b != 0.0f) && dot(viewDir, worldNormal) > 0)
                 {
                     return fixed4(_Emission.rgb, 1.0f);
                 }
-                fixed3 viewDir = normalize(_WorldSpaceCameraPos.xyz - i.worldPos.xyz);
-                fixed3 worldNormal = normalize(i.worldNormal);
                 worldNormal = dot(viewDir, worldNormal) < 0.0f ? -worldNormal : worldNormal;
                 fixed3 diffuse = _Albedo.rgb * dot(viewDir, worldNormal) * 0.5f;
                 fixed3 specular = _Albedo.rgb * pow(dot(viewDir, worldNormal), 50.0f);

@@ -940,12 +940,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unlitShader: {fileID: 4800000, guid: a0de4309f9bcde241adefaea1717dba6, type: 3}
   pathTracingShader: {fileID: 7200000, guid: 128d86dae575ac44db9ba95de9200115, type: 3}
-  textureWidth: 1920
-  textureHeight: 1080
+  textureWidth: 1280
+  textureHeight: 720
   maxDepth: 10
   russianRoulete: 0.9
   opacity: 1
   accumulate: 1
+  pauseOnStart: 0
   showDebugWindow: 1
 --- !u!114 &963194230
 MonoBehaviour:
@@ -1003,8 +1004,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a33370014af3a6546bf9fe14101e476e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  acceleration: 40
-  maxSpeed: 20
+  acceleration: 20
+  maxSpeed: 10
   rotationSpeed: 80
 --- !u!1 &1036017132
 GameObject:

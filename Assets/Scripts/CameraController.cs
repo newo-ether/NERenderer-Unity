@@ -14,11 +14,23 @@ public class CameraController : MonoBehaviour
     private float rotationY = 0.0f;
     private bool dispatch = true;
 
+    private float MapRotationXToValidRange(float theta)
+    {
+        int n = (int)Mathf.Floor(theta / 180.0f + 0.5f);
+        return n % 2 == 0 ? theta - n * 180.0f : -theta + n * 180.0f;
+    }
+
+    private float MapRotationYToValidRange(float theta)
+    {
+        theta %= 360.0f;
+        return theta < 0.0f ? theta + 360.0f : theta;
+    }
+
     void Start()
     {
         Cursor.visible = true;
         transform = GetComponent<Transform>();
-        rotationX = transform.rotation.eulerAngles.x;
+        rotationX = MapRotationXToValidRange(transform.rotation.eulerAngles.x);
         rotationY = transform.rotation.eulerAngles.y;
     }
 
@@ -35,7 +47,7 @@ public class CameraController : MonoBehaviour
             Cursor.visible = false;
             dispatch = false;
 
-            rotationX = transform.rotation.eulerAngles.x;
+            rotationX = MapRotationXToValidRange(transform.rotation.eulerAngles.x);
             rotationY = transform.rotation.eulerAngles.y;
             speed = Vector3.zero;
         }
@@ -91,7 +103,9 @@ public class CameraController : MonoBehaviour
 
             rotationX -= Input.GetAxis("Mouse Y") * Time.deltaTime * rotationSpeed;
             rotationY += Input.GetAxis("Mouse X") * Time.deltaTime * rotationSpeed;
-            rotationX = Mathf.Clamp(rotationX, -89.9f, 89.0f);
+            
+            rotationX = Mathf.Clamp(rotationX, -89.0f, 89.0f);
+            rotationY = MapRotationYToValidRange(rotationY);
 
             transform.rotation = Quaternion.Euler(new Vector3(rotationX, rotationY, 0.0f));
         }

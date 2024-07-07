@@ -1,6 +1,7 @@
 // PathTracingInvoker.cs
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
@@ -8,6 +9,7 @@ using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
 
 using Drawing;
+using UnityEditor;
 
 public class PathTracingInvoker : MonoBehaviour
 {
@@ -21,7 +23,7 @@ public class PathTracingInvoker : MonoBehaviour
     private ComputeBuffer pathTracingPrimitivesBuffer;
     private ComputeBuffer pathTracingEmissivePrimitivesBuffer;
     private ComputeBuffer pathTracingRandomBuffer;
-    private ComputeBuffer pathTracingRayBuffer;
+    private ComputeBuffer pathTracingRayInfoBuffer;
 
     public int textureWidth = 1920;
     public int textureHeight = 1080;
@@ -41,14 +43,19 @@ public class PathTracingInvoker : MonoBehaviour
 
     private new Renderer renderer;
     private RenderTexture renderTexture;
+    private Texture2D textureCache;
     private System.Random random = new();
 
     private int kernelHandle;
     private int frameCount = 1;
 
+    public bool pauseOnStart = false;
+
     public bool showDebugWindow = true;
-    private Rect debugWindowRect = new Rect(10, 10, 400, 0);
+    private Rect debugWindowRect = new Rect(10, 10, 500, 0);
+    private FrameState frameState;
     private bool debuggingRay = false;
+    private int invalidCount = 0;
     private Vector2 selectedPixelIndex;
     private Vector2 selectedPixelOffset;
     private bool selectingPixel = false;
@@ -61,8 +68,15 @@ public class PathTracingInvoker : MonoBehaviour
     private PathTracingRenderOption pathTracingRenderOption;
     private List<PathTracingPrimitive> pathTracingPrimitives;
     private List<PathTracingPrimitive> pathTracingEmissivePrimitives;
-    private PathTracingRay[] pathTracingRay;
+    private PathTracingRayInfo[] pathTracingRayInfo;
     private uint[] pathTracingRandom;
+
+    private enum FrameState
+    {
+        Run = 0,
+        Pause = 1,
+        Next = 2
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PathTracingCamera
@@ -223,6 +237,21 @@ public class PathTracingInvoker : MonoBehaviour
         public Vector3 dir;
         public float tMin;
         public float tMax;
+
+        public bool IsValid()
+        {
+            return origin != Vector3.zero || dir != Vector3.zero || tMin != 0.0f || tMax != 0.0f;
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PathTracingRayInfo
+    {
+        public PathTracingRay ray;
+        public PathTracingRay shadowRay;
+        public Vector3 radiance;
+        public Vector3 decay;
+        public int isHitLight;
         public int isEnd;
     }
 
@@ -385,6 +414,7 @@ public class PathTracingInvoker : MonoBehaviour
         RenderTexture texture;
         texture = new RenderTexture(textureWidth, textureHeight, 0);
         texture.enableRandomWrite = true;
+        texture.format = RenderTextureFormat.ARGBFloat;
         texture.filterMode = FilterMode.Point;
         texture.Create();
 
@@ -416,6 +446,10 @@ public class PathTracingInvoker : MonoBehaviour
         // Get Camera Data
         pathTracingCamera = UpdatePathTracingCamera();
 
+        // Get Camera Transform
+        cameraPosition = GetComponent<Camera>().transform.position;
+        cameraRotation = GetComponent<Camera>().transform.rotation;
+
         // Get Render Option Data
         pathTracingRenderOption = UpdatePathTracingRenderOption();
 
@@ -423,6 +457,9 @@ public class PathTracingInvoker : MonoBehaviour
         maxDepthString = maxDepth.ToString();
         russianRouleteString = russianRoulete.ToString();
         opacityString = opacity.ToString();
+
+        // Setup Frame State
+        frameState = pauseOnStart ? FrameState.Pause : FrameState.Run;
 
         // Get Scene Primitives
         pathTracingPrimitives = GetAllPathTracingPrimitives();
@@ -434,7 +471,7 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingRandom = GenerateRandomNumbers();
 
         // Create Ray Array
-        pathTracingRay = new PathTracingRay[textureWidth * textureHeight * maxDepth];
+        pathTracingRayInfo = new PathTracingRayInfo[textureWidth * textureHeight * maxDepth];
         
         // Create Render Texture
         renderTexture = CreateRenderTexture();
@@ -445,7 +482,7 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingPrimitivesBuffer = new ComputeBuffer(pathTracingPrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
         pathTracingEmissivePrimitivesBuffer = new ComputeBuffer(pathTracingEmissivePrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
         pathTracingRandomBuffer = new ComputeBuffer(textureWidth * textureHeight, sizeof(uint));
-        pathTracingRayBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRay>());
+        pathTracingRayInfoBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRayInfo>());
 
         // Setup Camera Buffer
         pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
@@ -464,7 +501,7 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingShader.SetBuffer(kernelHandle, "emissivePrimitives", pathTracingEmissivePrimitivesBuffer);
 
         // Setup Ray Buffer
-        pathTracingShader.SetBuffer(kernelHandle, "rayBuffer", pathTracingRayBuffer);
+        pathTracingShader.SetBuffer(kernelHandle, "rayInfoBuffer", pathTracingRayInfoBuffer);
 
         // Setup Basic Variables
         pathTracingShader.SetBool("accumulate", accumulate);
@@ -476,6 +513,9 @@ public class PathTracingInvoker : MonoBehaviour
         // Setup Random Buffer
         pathTracingRandomBuffer.SetData(pathTracingRandom);
         pathTracingShader.SetBuffer(kernelHandle, "randomBuffer", pathTracingRandomBuffer);
+
+        // Create Texture Cache
+        textureCache = new Texture2D(textureWidth, textureHeight, TextureFormat.RGBAFloat, false);
 
         // Create Display Plane
         displayPlane = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -501,9 +541,9 @@ public class PathTracingInvoker : MonoBehaviour
         renderer.material.SetFloat("_Opacity", opacity);
 
         // Draw Debug Rays
-        if (debuggingRay)
+        if (frameState == FrameState.Pause)
         {
-            if (isPixelSelected)
+            if (debuggingRay && isPixelSelected)
             {
                 float aspect = GetComponent<Camera>().aspect;
                 float fov = GetComponent<Camera>().fieldOfView;
@@ -526,15 +566,30 @@ public class PathTracingInvoker : MonoBehaviour
                                       pixelGeometry,
                                       new Color(0.8f, 0.8f, 0.2f));
 
-                PathTracingRay ray;
                 int offset = ((int)selectedPixelIndex.y * textureWidth + (int)selectedPixelIndex.x) * maxDepth;
                 for (int i = 0; i < maxDepth; i++)
                 {
-                    ray = pathTracingRay[offset + i];
-                    Vector3 begin = ray.origin + ray.dir * ray.tMin;
-                    Vector3 end = ray.origin + ray.dir * ray.tMax;
-                    Draw.ingame.Line(begin, end, new Color(0.8f, 0.8f, 0.2f));
-                    if (ray.isEnd == 1)
+                    PathTracingRayInfo rayInfo = pathTracingRayInfo[offset + i];
+                    PathTracingRay ray = rayInfo.ray;
+                    PathTracingRay shadowRay = rayInfo.shadowRay;
+
+                    // Draw Ray
+                    if (ray.IsValid())
+                    {
+                        Vector3 begin = ray.origin + ray.dir * ray.tMin;
+                        Vector3 end = ray.origin + ray.dir * ray.tMax;
+                        Draw.ingame.Line(begin, end, new Color(0.8f, 0.8f, 0.2f));
+                    }
+
+                    // Draw Shadow Ray
+                    if (shadowRay.IsValid())
+                    {
+                        Vector3 begin = shadowRay.origin + shadowRay.dir * shadowRay.tMin;
+                        Vector3 end = shadowRay.origin + shadowRay.dir * shadowRay.tMax;
+                        Draw.ingame.Line(begin, end, new Color(0.8f, 0.8f, 0.8f));
+                    }
+
+                    if (rayInfo.isEnd == 1)
                     {
                         break;
                     }
@@ -549,7 +604,6 @@ public class PathTracingInvoker : MonoBehaviour
             {
                 pathTracingCamera = newPathTracingCamera;
                 pathTracingCameraBuffer.SetData(new PathTracingCamera[] { pathTracingCamera });
-                pathTracingShader.SetBuffer(kernelHandle, "cameraBuffer", pathTracingCameraBuffer);
                 frameCount = 1;
             }
 
@@ -559,13 +613,13 @@ public class PathTracingInvoker : MonoBehaviour
             {
                 pathTracingRenderOption = newPathTracingRenderOption;
                 pathTracingRenderOptionBuffer.SetData(new PathTracingRenderOption[] { pathTracingRenderOption });
-                pathTracingShader.SetBuffer(kernelHandle, "renderOptionBuffer", pathTracingRenderOptionBuffer);
 
                 if (newPathTracingRenderOption.maxDepth != pathTracingRenderOption.maxDepth)
                 {
-                    pathTracingRay = new PathTracingRay[textureWidth * textureHeight * maxDepth];
-                    pathTracingRayBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRay>());
-                    pathTracingShader.SetBuffer(kernelHandle, "rayBuffer", pathTracingRayBuffer);
+                    pathTracingRayInfo = new PathTracingRayInfo[textureWidth * textureHeight * maxDepth];
+                    pathTracingRayInfoBuffer.Dispose();
+                    pathTracingRayInfoBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRayInfo>());
+                    pathTracingShader.SetBuffer(kernelHandle, "rayInfoBuffer", pathTracingRayInfoBuffer);
                 }
 
                 frameCount = 1;
@@ -586,17 +640,78 @@ public class PathTracingInvoker : MonoBehaviour
             // Execute Shader
             pathTracingShader.Dispatch(kernelHandle, textureWidth / 20, textureHeight / 20, 1);
 
+            // Save Texture Cache
+            StartCoroutine(SaveTextureCache());
+
+            // Save Camera Transform
+            cameraPosition = GetComponent<Camera>().transform.position;
+            cameraRotation = GetComponent<Camera>().transform.rotation;
+
             // Increase Frame Count
             frameCount += 1;
+
+            // Pause If FrameState is Set to Next
+            if (frameState == FrameState.Next)
+            {
+                frameState = FrameState.Pause;
+                invalidCount = CountInvalidPixel();
+                DebugInit();
+            }
         }
+    }
+
+    private IEnumerator SaveTextureCache()
+    {
+        yield return new WaitForEndOfFrame();
+
+        RenderTexture.active = renderTexture;
+
+        textureCache.ReadPixels(new Rect(0, 0, textureWidth, textureHeight), 0, 0);
+        textureCache.Apply();
+    }
+
+    void OnDestroy()
+    {
+        pathTracingCameraBuffer.Dispose();
+        pathTracingRenderOptionBuffer.Dispose();
+        pathTracingPrimitivesBuffer.Dispose();
+        pathTracingEmissivePrimitivesBuffer.Dispose();
+        pathTracingRandomBuffer.Dispose();
+        pathTracingRayInfoBuffer.Dispose();
     }
 
     void OnGUI()
     {
         if (showDebugWindow)
         {
-            debugWindowRect = GUILayout.Window(0, debugWindowRect, DebugWindow, "Debug Window", GUILayout.Width(400), GUILayout.Height(0));
+            debugWindowRect = GUILayout.Window(0, debugWindowRect, DebugWindow, "Debug Window", GUILayout.Width(500), GUILayout.Height(0));
         }
+    }
+
+    void DebugInit()
+    {
+        pathTracingRayInfoBuffer.GetData(pathTracingRayInfo);
+    }
+
+    int CountInvalidPixel()
+    {
+        int count = 0;
+
+        for (int i = 0; i < textureWidth; i++)
+        {
+            for (int j = 0; j < textureHeight; j++)
+            {
+                Color color = textureCache.GetPixel(i, j);
+                if (color.r < 0.0f || color.g < 0.0f || color.b < 0.0f
+                 || float.IsInfinity(color.r) || float.IsInfinity(color.g) || float.IsInfinity(color.b)
+                 || float.IsNaN(color.r) || float.IsNaN(color.g) || float.IsNaN(color.b))
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
     }
 
     void DebugWindow(int windowID)
@@ -606,7 +721,7 @@ public class PathTracingInvoker : MonoBehaviour
 
         GUILayout.Label("Accumulate");
 
-        GUI.enabled = !debuggingRay;
+        GUI.enabled = frameState == FrameState.Run;
 
         accumulate = GUILayout.Toggle(accumulate, " Toggle Frame Accumulation", GUILayout.Width(226));
         
@@ -621,7 +736,7 @@ public class PathTracingInvoker : MonoBehaviour
         
         GUILayout.Label("Max Depth");
 
-        GUI.enabled = !debuggingRay;
+        GUI.enabled = frameState == FrameState.Run;
 
         if (GUILayout.Button("+10", GUILayout.Width(40)))
         {
@@ -660,7 +775,7 @@ public class PathTracingInvoker : MonoBehaviour
 
         GUILayout.Label("Russian Roulete");
 
-        GUI.enabled = !debuggingRay;
+        GUI.enabled = frameState == FrameState.Run;
 
         if (GUILayout.Button("+.01", GUILayout.Width(40)))
         {
@@ -728,35 +843,94 @@ public class PathTracingInvoker : MonoBehaviour
         GUILayout.EndHorizontal();
         // End Opacity
 
-        
-        // Begin Debug Ray
+
+        // Begin Frame
         GUILayout.BeginHorizontal();
 
-        GUILayout.Label("Debug Ray");
+        GUILayout.Label("Frame Count: " + (frameCount - 1).ToString());
 
-        string debugRayText = debuggingRay ? "End Debugging" : "Start Debugging";
-
-        if (GUILayout.Button(debugRayText, GUILayout.Width(226)))
+        if (frameState == FrameState.Run)
         {
-            if (debuggingRay)
+            if (GUILayout.Button("Pause", GUILayout.Width(226)))
             {
+                frameState = FrameState.Pause;
+                invalidCount = CountInvalidPixel();
+            }
+        }
+        else
+        {
+            if (GUILayout.Button("Continue", GUILayout.Width(73)))
+            {
+                frameState = FrameState.Run;
+
                 debuggingRay = false;
                 selectingPixel = false;
                 isPixelSelected = false;
+
+                GetComponent<Transform>().SetPositionAndRotation(cameraPosition, cameraRotation);
             }
-            else
+
+            if (GUILayout.Button("Reset", GUILayout.Width(73)))
             {
-                debuggingRay = true;
+                frameState = FrameState.Run;
+                frameCount = 1;
+
+                debuggingRay = false;
                 selectingPixel = false;
                 isPixelSelected = false;
 
-                pathTracingRayBuffer.GetData(pathTracingRay);
-                cameraPosition = GetComponent<Camera>().transform.position;
-                cameraRotation = GetComponent<Camera>().transform.rotation;
+                GetComponent<Transform>().SetPositionAndRotation(cameraPosition, cameraRotation);
+            }
+
+            if (GUILayout.Button("Next", GUILayout.Width(73)))
+            {
+                frameState = FrameState.Next;
+
+                GetComponent<Transform>().SetPositionAndRotation(cameraPosition, cameraRotation);
             }
         }
 
         GUILayout.EndHorizontal();
+
+
+        // Begin Debug Ray
+        if (frameState != FrameState.Run)
+        {
+            GUILayout.BeginHorizontal();
+
+            GUILayout.Label("Debug Ray");
+
+            GUI.color = new Color(0.9f, 0.1f, 0.0f);
+
+            if (invalidCount > 0)
+            {
+                GUILayout.Label(invalidCount.ToString() + " Invalid Pixel(s)");
+            }
+
+            GUI.color = Color.white;
+
+            string debugRayText = debuggingRay ? "End Debugging" : "Start Debugging";
+
+            if (GUILayout.Button(debugRayText, GUILayout.Width(226)))
+            {
+                if (debuggingRay)
+                {
+                    debuggingRay = false;
+                    selectingPixel = false;
+                    isPixelSelected = false;
+                }
+                else
+                {
+                    debuggingRay = true;
+                    selectingPixel = false;
+                    isPixelSelected = false;
+
+                    DebugInit();
+                }
+            }
+
+            GUILayout.EndHorizontal();
+        }
         // End Debug Ray
 
 
@@ -792,6 +966,8 @@ public class PathTracingInvoker : MonoBehaviour
 
 
         // Begin Pixel Label
+        GUILayout.BeginHorizontal();
+
         if (selectingPixel)
         {
             selectedPixelIndex = GetMousePositionTextureIndex();
@@ -808,37 +984,90 @@ public class PathTracingInvoker : MonoBehaviour
                             + ", "
                             + ((int)selectedPixelIndex.y).ToString() + ")");
         }
-        else if (isPixelSelected)
+
+        if (isPixelSelected)
         {
-            GUILayout.Label("Pixel Selected: ("
-                            + ((int)selectedPixelIndex.x).ToString()
-                            + ", "
-                            + ((int)selectedPixelIndex.y).ToString() + ")");
+            if (!selectingPixel)
+            {
+                GUILayout.Label("Pixel Selected: ("
+                                + ((int)selectedPixelIndex.x).ToString()
+                                + ", "
+                                + ((int)selectedPixelIndex.y).ToString() + ")");
+            }
+
+            GUILayout.Label("Color: " + textureCache.GetPixel((int)selectedPixelIndex.x, (int)selectedPixelIndex.y).ToString());
         }
+
+        GUILayout.EndHorizontal();
         // End Pixel Label
 
 
         // Begin Ray Path
         if (isPixelSelected)
         {
-            PathTracingRay ray;
             string text = "";
             int offset = ((int)selectedPixelIndex.y * textureWidth + (int)selectedPixelIndex.x) * maxDepth;
             for (int i = 0; i < maxDepth; i++)
             {
-                ray = pathTracingRay[offset + i];
-                Vector3 begin = ray.origin + ray.dir * ray.tMin;
-                Vector3 end = ray.origin + ray.dir * ray.tMax;
-                text += "[" + i.ToString() + "] Begin=" + begin.ToString() + " End=" + end.ToString() + "\n";
-                if (ray.isEnd == 1)
+                PathTracingRayInfo rayInfo = pathTracingRayInfo[offset + i];
+                PathTracingRay ray = rayInfo.ray;
+                PathTracingRay shadowRay = rayInfo.shadowRay;
+                Vector3 rayBegin = ray.origin + ray.dir * ray.tMin;
+                Vector3 rayEnd = ray.origin + ray.dir * ray.tMax;
+                Vector3 shadowRayBegin = shadowRay.origin + shadowRay.dir * shadowRay.tMin;
+                Vector3 shadowRayEnd = shadowRay.origin + shadowRay.dir * shadowRay.tMax;
+
+                string depthText = "[" + i.ToString() + "] ";
+                string padding = " ";
+                
+                for (int n = 0; n < depthText.Length; n++)
+                {
+                    padding += " ";
+                }
+
+                if (ray.IsValid())
+                {
+                    text += depthText + "Ray { Begin = " + rayBegin.ToString() + "  End = " + rayEnd.ToString() + " }\n";
+                }
+
+                if (shadowRay.IsValid())
+                {
+                    text += padding + "ShadowRay { " + "Begin = " + shadowRayBegin.ToString() + "  End = " + shadowRayEnd.ToString() + " }\n";
+                }
+
+                if (rayInfo.isHitLight == 0)
+                {
+                    if (shadowRay.IsValid())
+                    {
+                        text += padding + "ShadowRayRadiance = " + rayInfo.radiance.ToString() + "\n";
+                    }
+                }
+                else
+                {
+                    if (ray.IsValid())
+                    {
+                        text += padding + "RayRadiance = " + rayInfo.radiance.ToString() + "\n";
+                    }
+                }
+
+                if (ray.IsValid())
+                {
+                    text += padding + "Decay = " + rayInfo.decay.ToString() + "\n";
+                }
+
+                if (rayInfo.isEnd == 1)
                 {
                     break;
+                }
+                else
+                {
+                    text += "\n";
                 }
             }
 
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, GUILayout.Height(100));
 
-            GUILayout.Label(text);
+            GUILayout.TextArea(text);
 
             GUILayout.EndScrollView();
         }
