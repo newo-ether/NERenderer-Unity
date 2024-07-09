@@ -218,6 +218,7 @@ public class PathTracingInvoker : MonoBehaviour
         public Vector3 albedo;
         public float metallic;
         public float roughness;
+        public Vector3 F0;
         public float IOR;
         public float transmission;
         public Vector3 emission;
@@ -268,6 +269,7 @@ public class PathTracingInvoker : MonoBehaviour
             albedo = material.GetVector("_Albedo"),
             metallic = material.GetFloat("_Metallic"),
             roughness = material.GetFloat("_Roughness"),
+            F0 = material.GetVector("_F0"),
             IOR = material.GetFloat("_IOR"),
             transmission = material.GetFloat("_Transmission"),
             emission = material.GetVector("_Emission")

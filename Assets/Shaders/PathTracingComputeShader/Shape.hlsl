@@ -44,7 +44,7 @@ IntersectInfo ShapeIntersect(Shape shape, Ray ray)
                 normal = -normal;
                 isFront = false;
             }
-            return IntersectInfoInit(isFront, t, p + normal * EPSILON, normal, -ray.dir, MaterialInitEmpty());
+            return IntersectInfoInit(isFront, t, p, normal, -ray.dir, MaterialInitEmpty());
         }
         else
         {

@@ -8,6 +8,7 @@ Shader "Custom/Path Tracing Shader"
         _Albedo("Albedo", Color) = (1,1,1,1)
         _Metallic("Metallic", Range(0,1)) = 0
         _Roughness("Roughness", Range(0,1)) = 1
+        _F0("F0", Color) = (0,0,0)
         _IOR("IOR", Float) = 1
         _Transmission("Transmission", Range(0,1)) = 0
         [HDR] _Emission("Emission", Color) = (0,0,0,1)

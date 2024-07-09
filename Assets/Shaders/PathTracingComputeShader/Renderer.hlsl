@@ -9,7 +9,7 @@
 #include "IntersectInfo.hlsl"
 #include "Material.hlsl"
 #include "Random.hlsl"
-#include "Light.hlsl"
+#include "Direct.hlsl"
 #include "Constant.hlsl"
 
 struct RenderOption
@@ -50,7 +50,7 @@ float3 PathTracing(Ray ray, uint2 screenIndex)
             }
             else
             {
-                float3 direct = SampleOneLight(isect, offset, depth);
+                float3 direct = EstimateDirect(isect, offset, depth, MaterialGetSampleStratrgy(material));
                 RayInfoSetRadiance(direct, offset, depth);
                 Lo += decay * direct;
             }
@@ -61,11 +61,9 @@ float3 PathTracing(Ray ray, uint2 screenIndex)
                 break;
             }
             
-            float3 newDir = RandomCosineWeightedHemisphereDir(isect.hitNormal);
-            ray = RayInit(isect.hitPoint, newDir, 0.0f, INF);
-            float invPdf = PI;
-            decay *= MaterialBSDF(material, newDir, isect.incomeDir, isect.hitNormal)
-                     * invPdf;
+            BxDFSample bsdfSample = MaterialSampleBSDF(material, isect.incomeDir, isect.hitNormal, isect.isFront);
+            ray = RayInit(isect.hitPoint, bsdfSample.dir, EPSILON, INF);
+            decay *= bsdfSample.f * bsdfSample.invPdf;
             
             if (depth >= 2)
             {
