@@ -12,6 +12,7 @@
 struct Shape
 {
     float3 vertex[3];
+    float3 normal[3];
 };
 
 IntersectInfo ShapeIntersect(Shape shape, Ray ray)
@@ -38,13 +39,22 @@ IntersectInfo ShapeIntersect(Shape shape, Ray ray)
     
         if ((b0 >= 0 && b1 >= 0 && b2 >= 0) || (b0 <= 0 && b1 <= 0 && b2 <= 0))
         {
+            float invbSum = 1.0f / (b0 + b1 + b2);
+            
+            b0 *= invbSum;
+            b1 *= invbSum;
+            b2 *= invbSum;
+            
+            float3 shadingNormal = b0 * shape.normal[1] + b1 * shape.normal[2] + b2 * shape.normal[0];
+            
             bool isFront = true;
             if (dot(-ray.dir, normal) < 0.0f)
             {
-                normal = -normal;
+                shadingNormal = -shadingNormal;
                 isFront = false;
             }
-            return IntersectInfoInit(isFront, t, p, normal, -ray.dir, MaterialInitEmpty());
+            
+            return IntersectInfoInit(isFront, t, p, shadingNormal, -ray.dir, MaterialInitEmpty());
         }
         else
         {

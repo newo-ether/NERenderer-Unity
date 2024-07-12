@@ -186,11 +186,15 @@ namespace AccelBuilder
             {
                 Bound3 bound = Bound3.Bound3Init();
                 Vector3 centroid = new Vector3();
-                for (int n = 0; n < 3; n++)
-                {
-                    bound.Union(primitives[i].shape[n]);
-                    centroid += primitives[i].shape[n];
-                }
+
+                bound.Union(primitives[i].shape.v0);
+                bound.Union(primitives[i].shape.v1);
+                bound.Union(primitives[i].shape.v2);
+
+                centroid += primitives[i].shape.v0;
+                centroid += primitives[i].shape.v1;
+                centroid += primitives[i].shape.v2;
+
                 centroid /= 3.0f;
                 worldBound.Union(bound);
 

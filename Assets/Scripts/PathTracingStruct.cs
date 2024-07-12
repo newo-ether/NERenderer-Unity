@@ -108,30 +108,9 @@ namespace PathTracingStruct
         public Vector3 v1;
         public Vector3 v2;
 
-        public Vector3 this[int index]
-        {
-            get
-            {
-                return index switch
-                {
-                    0 => v0,
-                    1 => v1,
-                    2 => v2,
-                    _ => throw new IndexOutOfRangeException("PathTracingShape index out of range."),
-                };
-            }
-
-            set
-            {
-                switch (index)
-                {
-                    case 0: v0 = value; break;
-                    case 1: v1 = value; break;
-                    case 2: v2 = value; break;
-                    default: throw new IndexOutOfRangeException("PathTracingShape index out of range.");
-                }
-            }
-        }
+        public Vector3 n0;
+        public Vector3 n1;
+        public Vector3 n2;
     }
 
     public enum BSDFType

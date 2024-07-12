@@ -136,6 +136,7 @@ public class PathTracingInvoker : MonoBehaviour
             PathTracingMaterial pathTracingMaterial = GetPathTracingMaterial(ref mat);
             Transform transform = gameObject.transform;
             Vector3[] vertices = mesh.vertices;
+            Vector3[] normals = mesh.normals;
             int[] faces = mesh.triangles;
 
             for (int i = 0; i < faces.Length; i += 3)
@@ -144,9 +145,13 @@ public class PathTracingInvoker : MonoBehaviour
                 {
                     shape = new PathTracingShape
                     {
-                        [0] = transform.TransformPoint(vertices[faces[i]]),
-                        [1] = transform.TransformPoint(vertices[faces[i + 1]]),
-                        [2] = transform.TransformPoint(vertices[faces[i + 2]]),
+                        v0 = transform.TransformPoint(vertices[faces[i]]),
+                        v1 = transform.TransformPoint(vertices[faces[i + 1]]),
+                        v2 = transform.TransformPoint(vertices[faces[i + 2]]),
+
+                        n0 = transform.TransformDirection(normals[faces[i]]),
+                        n1 = transform.TransformDirection(normals[faces[i + 1]]),
+                        n2 = transform.TransformDirection(normals[faces[i + 2]])
                     },
                     material = pathTracingMaterial
                 });
@@ -584,9 +589,9 @@ public class PathTracingInvoker : MonoBehaviour
                 {
                     for (int n = node.offset; n < node.offset + node.primtiveCount; n++)
                     {
-                        Draw.ingame.SolidTriangle(primitives[n].shape[0],
-                                                  primitives[n].shape[1],
-                                                  primitives[n].shape[2],
+                        Draw.ingame.SolidTriangle(primitives[n].shape.v0,
+                                                  primitives[n].shape.v1,
+                                                  primitives[n].shape.v2,
                                                   Color.blue);
                     }
                 }
