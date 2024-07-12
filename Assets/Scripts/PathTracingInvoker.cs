@@ -3,13 +3,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
-
 using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
-
 using Drawing;
-using UnityEditor;
+using PathTracingStruct;
+using static AccelBuilder.BVHBuilder;
 
 public class PathTracingInvoker : MonoBehaviour
 {
@@ -22,6 +20,7 @@ public class PathTracingInvoker : MonoBehaviour
     private ComputeBuffer pathTracingRenderOptionBuffer;
     private ComputeBuffer pathTracingPrimitivesBuffer;
     private ComputeBuffer pathTracingEmissivePrimitivesBuffer;
+    private ComputeBuffer pathTracingBVHNodesBuffer;
     private ComputeBuffer pathTracingRandomBuffer;
     private ComputeBuffer pathTracingRayInfoBuffer;
 
@@ -53,21 +52,32 @@ public class PathTracingInvoker : MonoBehaviour
 
     public bool showDebugWindow = true;
     private Rect debugWindowRect = new Rect(10, 10, 500, 0);
+
     private FrameState frameState;
+
+    private bool showBVH = false;
+    private bool selectDepth = false;
+    private int showBVHDepth = 0;
+    private string showBVHDepthString;
+
     private bool debuggingRay = false;
     private int invalidCount = 0;
+
     private Vector2 selectedPixelIndex;
     private Vector2 selectedPixelOffset;
+
     private bool selectingPixel = false;
     private bool isPixelSelected = false;
+
     private Vector2 scrollPosition = new Vector2(0.0f, 0.0f);
     private Vector3 cameraPosition;
     private Quaternion cameraRotation;
 
     private PathTracingCamera pathTracingCamera;
     private PathTracingRenderOption pathTracingRenderOption;
-    private List<PathTracingPrimitive> pathTracingPrimitives;
-    private List<PathTracingPrimitive> pathTracingEmissivePrimitives;
+    private PathTracingPrimitive[] pathTracingPrimitives;
+    private PathTracingPrimitive[] pathTracingEmissivePrimitives;
+    private LinearBVHNode[] pathTracingBVHNodes;
     private PathTracingRayInfo[] pathTracingRayInfo;
     private uint[] pathTracingRandom;
 
@@ -76,184 +86,6 @@ public class PathTracingInvoker : MonoBehaviour
         Run = 0,
         Pause = 1,
         Next = 2
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingCamera
-    {
-        public Vector3 pos;
-
-        public Vector3 look;
-        public Vector3 up;
-        public Vector3 right;
-
-        public Vector3 screenLowerLeftCorner;
-        public float screenPlaneWidth;
-        public float screenPlaneHeight;
-
-        public float fov;
-        public float focalLength;
-        public float lenRadius;
-
-        public override bool Equals(object obj)
-        {
-            return base.Equals(obj);
-        }
-
-        public bool Equals(PathTracingCamera cam)
-        {
-            return pos == cam.pos
-                && look == cam.look
-                && up == cam.up
-                && right == cam.right
-                && fov == cam.fov
-                && focalLength == cam.focalLength
-                && lenRadius == cam.lenRadius;
-        }
-
-        public override int GetHashCode() => (pos,
-                                              look,
-                                              up,
-                                              right,
-                                              fov,
-                                              focalLength,
-                                              lenRadius)
-                                              .GetHashCode();
-
-        public static bool operator==(PathTracingCamera cameraA, PathTracingCamera cameraB)
-        {
-            return cameraA.pos == cameraB.pos
-                   && cameraA.look == cameraB.look
-                   && cameraA.up == cameraB.up
-                   && cameraA.right == cameraB.right
-                   && cameraA.fov == cameraB.fov
-                   && cameraA.focalLength == cameraB.focalLength
-                   && cameraA.lenRadius == cameraB.lenRadius;
-        }
-
-        public static bool operator!=(PathTracingCamera cameraA, PathTracingCamera cameraB)
-        {
-            return cameraA.pos != cameraB.pos
-                   || cameraA.look != cameraB.look
-                   || cameraA.up != cameraB.up
-                   || cameraA.right != cameraB.right
-                   || cameraA.fov != cameraB.fov
-                   || cameraA.focalLength != cameraB.focalLength
-                   || cameraA.lenRadius != cameraB.lenRadius;
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingRenderOption
-    {
-        public int maxDepth;
-        public float russianRoulete;
-
-        public override bool Equals(object obj)
-        {
-            return base.Equals(obj);
-        }
-
-        public bool Equals(PathTracingRenderOption option)
-        {
-            return maxDepth == option.maxDepth && russianRoulete == option.russianRoulete;
-        }
-
-        public override int GetHashCode() => (maxDepth, russianRoulete).GetHashCode();
-
-        public static bool operator==(PathTracingRenderOption optionA, PathTracingRenderOption optionB)
-        {
-            return optionA.maxDepth == optionB.maxDepth && optionA.russianRoulete == optionB.russianRoulete;
-        }
-
-        public static bool operator!=(PathTracingRenderOption optionA, PathTracingRenderOption optionB)
-        {
-            return optionA.maxDepth != optionB.maxDepth || optionA.russianRoulete != optionB.russianRoulete;
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingShape
-    {
-        public Vector3 v0;
-        public Vector3 v1;
-        public Vector3 v2;
-
-        public Vector3 this[int index]
-        {
-            get {
-                return index switch
-                {
-                    0 => v0,
-                    1 => v1,
-                    2 => v2,
-                    _ => throw new IndexOutOfRangeException("PathTracingShape index out of range."),
-                };
-            }
-
-            set
-            {
-                switch (index)
-                {
-                    case 0: v0 = value; break;
-                    case 1: v1 = value; break;
-                    case 2: v2 = value; break;
-                    default: throw new IndexOutOfRangeException("PathTracingShape index out of range.");
-                }
-            }
-        }
-    }
-
-    private enum BSDFType
-    {
-        Lambertian = 0,
-        Specular   = 1,
-        Microfacet = 2
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingMaterial
-    {
-        public BSDFType type;
-        public Vector3 albedo;
-        public float metallic;
-        public float roughness;
-        public Vector3 F0;
-        public float IOR;
-        public float transmission;
-        public Vector3 emission;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingPrimitive
-    {
-        public PathTracingShape shape;
-        public PathTracingMaterial material;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingRay
-    {
-        public Vector3 origin;
-        public Vector3 dir;
-        public float tMin;
-        public float tMax;
-
-        public bool IsValid()
-        {
-            return origin != Vector3.zero || dir != Vector3.zero || tMin != 0.0f || tMax != 0.0f;
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PathTracingRayInfo
-    {
-        public PathTracingRay ray;
-        public PathTracingRay shadowRay;
-        public Vector3 radiance;
-        public Vector3 decay;
-        public int isHitLight;
-        public int isEnd;
     }
 
     private GameObject[] GetAllGameObjects()
@@ -276,7 +108,7 @@ public class PathTracingInvoker : MonoBehaviour
         };
     }
 
-    private List<PathTracingPrimitive> GetAllPathTracingPrimitives()
+    private PathTracingPrimitive[] GetAllPathTracingPrimitives()
     {
         GameObject[] gameObjects = GetAllGameObjects();
         List<PathTracingPrimitive> primitives = new();
@@ -320,10 +152,10 @@ public class PathTracingInvoker : MonoBehaviour
                 });
             }
         }
-        return primitives;
+        return primitives.ToArray();
     }
 
-    List<PathTracingPrimitive> PickAllEmissivePrimitives(List<PathTracingPrimitive> allPrimitives)
+    PathTracingPrimitive[] PickAllEmissivePrimitives(PathTracingPrimitive[] allPrimitives)
     {
         List<PathTracingPrimitive> emissivePrimitives = new List<PathTracingPrimitive>();
         foreach (PathTracingPrimitive primitive in allPrimitives)
@@ -333,7 +165,7 @@ public class PathTracingInvoker : MonoBehaviour
                 emissivePrimitives.Add(primitive);
             }
         }
-        return emissivePrimitives;
+        return emissivePrimitives.ToArray();
     }
 
     private void UpdateDisplayPlane()
@@ -459,6 +291,7 @@ public class PathTracingInvoker : MonoBehaviour
         maxDepthString = maxDepth.ToString();
         russianRouleteString = russianRoulete.ToString();
         opacityString = opacity.ToString();
+        showBVHDepthString = showBVHDepth.ToString();
 
         // Setup Frame State
         frameState = pauseOnStart ? FrameState.Pause : FrameState.Run;
@@ -468,6 +301,9 @@ public class PathTracingInvoker : MonoBehaviour
 
         // Pick Emissive Primitives
         pathTracingEmissivePrimitives = PickAllEmissivePrimitives(pathTracingPrimitives);
+
+        // Build BVH Tree
+        pathTracingBVHNodes = BuildBVHTree(pathTracingPrimitives);
 
         // Generate Ramdom Numbers
         pathTracingRandom = GenerateRandomNumbers();
@@ -481,8 +317,9 @@ public class PathTracingInvoker : MonoBehaviour
         // Create Compute Buffers
         pathTracingCameraBuffer = new ComputeBuffer(1, UnsafeUtility.SizeOf<PathTracingCamera>());
         pathTracingRenderOptionBuffer = new ComputeBuffer(1, UnsafeUtility.SizeOf<PathTracingRenderOption>());
-        pathTracingPrimitivesBuffer = new ComputeBuffer(pathTracingPrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
-        pathTracingEmissivePrimitivesBuffer = new ComputeBuffer(pathTracingEmissivePrimitives.Count, UnsafeUtility.SizeOf<PathTracingPrimitive>());
+        pathTracingPrimitivesBuffer = new ComputeBuffer(pathTracingPrimitives.Length, UnsafeUtility.SizeOf<PathTracingPrimitive>());
+        pathTracingEmissivePrimitivesBuffer = new ComputeBuffer(pathTracingEmissivePrimitives.Length, UnsafeUtility.SizeOf<PathTracingPrimitive>());
+        pathTracingBVHNodesBuffer = new ComputeBuffer(pathTracingBVHNodes.Length, UnsafeUtility.SizeOf<LinearBVHNode>());
         pathTracingRandomBuffer = new ComputeBuffer(textureWidth * textureHeight, sizeof(uint));
         pathTracingRayInfoBuffer = new ComputeBuffer(textureWidth * textureHeight * maxDepth, UnsafeUtility.SizeOf<PathTracingRayInfo>());
 
@@ -502,6 +339,10 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingEmissivePrimitivesBuffer.SetData(pathTracingEmissivePrimitives);
         pathTracingShader.SetBuffer(kernelHandle, "emissivePrimitives", pathTracingEmissivePrimitivesBuffer);
 
+        // Setup BVH Nodes Buffer
+        pathTracingBVHNodesBuffer.SetData(pathTracingBVHNodes);
+        pathTracingShader.SetBuffer(kernelHandle, "bvhNodes", pathTracingBVHNodesBuffer);
+
         // Setup Ray Buffer
         pathTracingShader.SetBuffer(kernelHandle, "rayInfoBuffer", pathTracingRayInfoBuffer);
 
@@ -509,8 +350,9 @@ public class PathTracingInvoker : MonoBehaviour
         pathTracingShader.SetBool("accumulate", accumulate);
         pathTracingShader.SetInt("renderWidth", textureWidth);
         pathTracingShader.SetInt("renderHeight", textureHeight);
-        pathTracingShader.SetInt("primitiveCount", pathTracingPrimitives.Count);
-        pathTracingShader.SetInt("emissivePrimitiveCount", pathTracingEmissivePrimitives.Count);
+        pathTracingShader.SetInt("primitiveCount", pathTracingPrimitives.Length);
+        pathTracingShader.SetInt("emissivePrimitiveCount", pathTracingEmissivePrimitives.Length);
+        pathTracingShader.SetInt("bvhNodeCount", pathTracingBVHNodes.Length);
 
         // Setup Random Buffer
         pathTracingRandomBuffer.SetData(pathTracingRandom);
@@ -541,6 +383,12 @@ public class PathTracingInvoker : MonoBehaviour
 
         // Update Display Plane Opacity
         renderer.material.SetFloat("_Opacity", opacity);
+
+        // Draw BVH If Needed
+        if (showBVH)
+        {
+            DrawBVHTree(pathTracingBVHNodes, pathTracingPrimitives);
+        }
 
         // Draw Debug Rays
         if (frameState == FrameState.Pause)
@@ -640,7 +488,7 @@ public class PathTracingInvoker : MonoBehaviour
             pathTracingShader.SetInt("extraSeed", random.Next());
 
             // Execute Shader
-            pathTracingShader.Dispatch(kernelHandle, textureWidth / 20, textureHeight / 20, 1);
+            pathTracingShader.Dispatch(kernelHandle, textureWidth / 10, textureHeight / 10, 1);
 
             // Save Texture Cache
             StartCoroutine(SaveTextureCache());
@@ -674,12 +522,99 @@ public class PathTracingInvoker : MonoBehaviour
 
     void OnDestroy()
     {
-        pathTracingCameraBuffer.Dispose();
-        pathTracingRenderOptionBuffer.Dispose();
-        pathTracingPrimitivesBuffer.Dispose();
-        pathTracingEmissivePrimitivesBuffer.Dispose();
-        pathTracingRandomBuffer.Dispose();
-        pathTracingRayInfoBuffer.Dispose();
+        if (pathTracingCameraBuffer != null)
+        {
+            pathTracingCameraBuffer.Dispose();
+        }
+
+        if (pathTracingRenderOptionBuffer != null)
+        {
+            pathTracingRenderOptionBuffer.Dispose();
+        }
+
+        if (pathTracingPrimitivesBuffer != null)
+        {
+            pathTracingPrimitivesBuffer.Dispose();
+        }
+
+        if (pathTracingEmissivePrimitivesBuffer != null)
+        {
+            pathTracingEmissivePrimitivesBuffer.Dispose();
+        }
+
+        if (pathTracingBVHNodesBuffer != null)
+        {
+            pathTracingBVHNodesBuffer.Dispose();
+        }
+
+        if (pathTracingRandomBuffer != null)
+        {
+            pathTracingRandomBuffer.Dispose();
+        }
+
+        if (pathTracingRayInfoBuffer != null)
+        {
+            pathTracingRayInfoBuffer.Dispose();
+        }
+    }
+
+    void DrawBVHTree(LinearBVHNode[] nodes, PathTracingPrimitive[] primitives)
+    {
+        Stack<int> offsetStack = new Stack<int>();
+        Stack<int> depthStack = new Stack<int>();
+        int traversalDepth = 0;
+        for (int i = 0; i < nodes.Length;)
+        {
+            LinearBVHNode node = nodes[i];
+            Bound3 bound = node.bound;
+            Color color;
+
+            if (node.primtiveCount == 0)
+            {
+                color = Color.white;
+            }
+            else
+            {
+                color = Color.green;
+            }
+
+            if (selectDepth && showBVHDepth == traversalDepth)
+            {
+                if (node.primtiveCount > 0)
+                {
+                    for (int n = node.offset; n < node.offset + node.primtiveCount; n++)
+                    {
+                        Draw.ingame.SolidTriangle(primitives[n].shape[0],
+                                                  primitives[n].shape[1],
+                                                  primitives[n].shape[2],
+                                                  Color.blue);
+                    }
+                }
+
+                Draw.ingame.WireBox(new Bounds(0.5f * (bound.pMin + bound.pMax), bound.Diagnal()), color);
+            }
+            else if (!selectDepth)
+            {
+                Draw.ingame.WireBox(new Bounds(0.5f * (bound.pMin + bound.pMax), bound.Diagnal()), color);
+            }
+
+            if (node.primtiveCount == 0)
+            {
+                offsetStack.Push(node.offset);
+                depthStack.Push(traversalDepth + 1);
+                i++;
+                traversalDepth++;
+            }
+            else
+            {
+                if (offsetStack.Count == 0)
+                {
+                    break;
+                }
+                i = offsetStack.Pop();
+                traversalDepth = depthStack.Pop();
+            }
+        }
     }
 
     void OnGUI()
@@ -846,10 +781,62 @@ public class PathTracingInvoker : MonoBehaviour
         // End Opacity
 
 
+        // Begin BVH
+        GUILayout.BeginHorizontal();
+
+        GUILayout.Label("Debug BVH");
+
+        string showBVHText = showBVH ? "Hide BVH" : "Show BVH";
+
+        if (GUILayout.Button(showBVHText, GUILayout.Width(226)))
+        {
+            showBVH = !showBVH;
+            selectDepth = false;
+        }
+
+        GUILayout.EndHorizontal();
+
+        if (showBVH)
+        {
+            GUILayout.BeginHorizontal();
+
+            GUILayout.FlexibleSpace();
+
+            selectDepth = GUILayout.Toggle(selectDepth, "Select Depth", GUILayout.Width(90));
+
+            GUILayout.Space(35);
+
+            GUI.enabled = selectDepth;
+
+            if (GUILayout.Button("-", GUILayout.Width(20)))
+            {
+                showBVHDepth = Math.Max(showBVHDepth - 1, 0);
+                showBVHDepthString = showBVHDepth.ToString();
+            }
+
+            showBVHDepthString = GUILayout.TextField(showBVHDepthString, GUILayout.Width(50));
+            int.TryParse(showBVHDepthString, out showBVHDepth);
+            showBVHDepth = Math.Max(0, showBVHDepth);
+            
+            if (GUILayout.Button("+", GUILayout.Width(20)))
+            {
+                showBVHDepth = Math.Max(showBVHDepth + 1, 0);
+                showBVHDepthString = showBVHDepth.ToString();
+            }
+
+            GUI.enabled = !selectDepth;
+
+            GUILayout.EndHorizontal();
+        }
+        // End BVH
+
+
         // Begin Frame
         GUILayout.BeginHorizontal();
 
-        GUILayout.Label("Frame Count: " + (frameCount - 1).ToString());
+        GUILayout.Label("Frame: " + (frameCount - 1).ToString() + "  |  "
+                        + (1.0f / Time.deltaTime).ToString("F1") + "fps" + "  |  "
+                        + (Time.deltaTime * 1000.0f).ToString("F1") + "ms");
 
         if (frameState == FrameState.Run)
         {

@@ -4,6 +4,7 @@
 #define __CONSTANT__
 
 static const float INF = 1.#INF;
+static const float NEGINF = -1.#INF;
 static const float PI = 3.1415926535898f;
 static const float TWOPI = 6.2831853071796f;
 static const float INVPI = 0.3183098861838f;

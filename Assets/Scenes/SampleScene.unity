@@ -803,8 +803,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unlitShader: {fileID: 4800000, guid: a0de4309f9bcde241adefaea1717dba6, type: 3}
   pathTracingShader: {fileID: 7200000, guid: 128d86dae575ac44db9ba95de9200115, type: 3}
-  textureWidth: 1280
-  textureHeight: 720
+  textureWidth: 1920
+  textureHeight: 1080
   maxDepth: 10
   russianRoulete: 0.9
   opacity: 1
@@ -887,7 +887,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!23 &972763508
 MeshRenderer:
   m_ObjectHideFlags: 0

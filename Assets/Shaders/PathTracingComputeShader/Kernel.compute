@@ -14,7 +14,7 @@ bool accumulate;
 // Uniform Variable
 int frameCount;
 
-[numthreads(20,20,1)]
+[numthreads(10,10,1)]
 void Render (uint3 id : SV_DispatchThreadID)
 {
     uint2 screenIndex = id.xy;
